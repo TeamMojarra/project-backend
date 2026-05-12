@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: reservent_db
+    restart: always
+    environment:
+      POSTGRES_DB: reservent_db
+      POSTGRES_USER: reservent
+      POSTGRES_PASSWORD: pass1234
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
