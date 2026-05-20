@@ -1,0 +1,15 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+.gitignore
+documentacion/
+tests/
+*.md
+setup.sh
+setup.bat
+.DS_Store
+.pytest_cache/
+reservent_dev.db

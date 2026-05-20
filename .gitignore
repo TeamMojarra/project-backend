@@ -1,10 +1,26 @@
-venv/
+# Python
 __pycache__/
-.pytest_cache/
-*.pyc
-*.pyo
-*.pyd
-.env
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
 .venv/
-.idea/
+
+# Environment variables
+.env
+
+# IDE
 .vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+postgres_data/
