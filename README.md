@@ -1,8 +1,8 @@
 # Reservent - Backend
 
-Backend del proyecto Reservent. Este repositorio contiene la base de la API construida con FastAPI, SQLAlchemy y PostgreSQL.
+Backend del proyecto Reservent. Este repositorio contiene la API construida con FastAPI, SQLAlchemy y PostgreSQL.
 
-Actualmente incluye la configuracion inicial del servidor, la conexion a la base de datos, un endpoint de prueba y un esquema SQL con las tablas principales del sistema de reservas y eventos.
+Incluye autenticacion con JWT, gestion de eventos, reservas, pagos simulados, tickets digitales y notificaciones basicas.
 
 ## Requisitos
 
@@ -37,20 +37,26 @@ uvicorn app.main:app --reload
 
 La documentacion interactiva de FastAPI queda disponible en `http://127.0.0.1:8000/docs`.
 
-## Endpoints iniciales
+## Endpoints principales
 
 - `GET /`: confirma que la API esta funcionando.
-- `GET /api/hello`: devuelve un mensaje de prueba y registra el primer saludo en la base de datos si no existe.
+- `POST /api/auth/register`: registra usuarios.
+- `POST /api/auth/login`: inicia sesion y devuelve un JWT.
+- `GET /api/auth/me`: devuelve el usuario autenticado.
+- `GET /api/events`: lista eventos.
+- `POST /api/events`: crea eventos autenticados.
+- `POST /api/reservations`: crea reservas.
+- `POST /api/reservations/{id}/pay`: confirma una reserva con pago simulado.
+- `GET /api/tickets/my`: lista tickets del usuario.
+- `POST /api/tickets/{code}/validate`: valida un ticket.
 
 ## Estructura del proyecto
 
-- `app/main.py`: configuracion principal de FastAPI.
-- `app/controllers/`: definicion de rutas y endpoints.
-- `app/services/`: logica de negocio.
-- `app/repositories/`: acceso a datos.
+- `app/main.py`: rutas y flujo principal de la API.
 - `app/database.py`: conexion y sesiones de base de datos.
 - `app/models.py`: modelos ORM.
-- `app/schemas.py`: esquemas de respuesta.
+- `app/schemas.py`: contratos de entrada y salida.
+- `app/security.py`: hashing de contrasenas y JWT.
 - `tests/`: pruebas basicas del proyecto.
 - `reservent-db.sql`: esquema base de la base de datos del sistema.
 
