@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class MessageResponse(BaseModel):
@@ -130,6 +130,17 @@ class EventCreate(BaseModel):
             raise ValueError("La modalidad debe ser presencial, virtual o hibrido")
         return value
 
+    @model_validator(mode="after")
+    def validate_dates(self):
+        start_datetime = ensure_aware_datetime(self.start_datetime)
+        if start_datetime <= datetime.now(start_datetime.tzinfo):
+            raise ValueError("La fecha de inicio debe ser futura")
+        if self.end_datetime:
+            end_datetime = ensure_aware_datetime(self.end_datetime)
+            if end_datetime <= start_datetime:
+                raise ValueError("La fecha de fin debe ser posterior al inicio")
+        return self
+
 
 class EventUpdate(EventCreate):
     status: str = "available"
@@ -183,6 +194,7 @@ class ReservationResponse(BaseModel):
 class PaymentCreate(BaseModel):
     holder_name: str
     card_number: Optional[str] = None
+    result: str = "approved"
 
     @field_validator("holder_name")
     @classmethod
@@ -190,6 +202,13 @@ class PaymentCreate(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("El nombre del titular es obligatorio")
+        return value
+
+    @field_validator("result")
+    @classmethod
+    def validate_result(cls, value):
+        if value not in {"approved", "rejected"}:
+            raise ValueError("El resultado del pago debe ser approved o rejected")
         return value
 
 
@@ -222,7 +241,7 @@ class TicketResponse(BaseModel):
 class CheckoutResponse(BaseModel):
     payment: PaymentResponse
     reservation: ReservationResponse
-    ticket: TicketResponse
+    ticket: Optional[TicketResponse]
     message: str
 
 
@@ -253,3 +272,9 @@ def validate_password_strength(value: str):
         raise ValueError("La contraseña debe incluir una minúscula")
     if not re.search(r"[0-9]", value):
         raise ValueError("La contraseña debe incluir un número")
+
+
+def ensure_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return value
