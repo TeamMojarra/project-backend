@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import or_
+from sqlalchemy import nullslast, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_database
@@ -39,7 +39,7 @@ def list_events(
         pattern = f"%{search.strip()}%"
         query = query.filter(or_(Event.name.ilike(pattern), Event.description.ilike(pattern)))
 
-    return query.order_by(Event.start_datetime.asc()).all()
+    return query.order_by(nullslast(Event.start_datetime.asc()), Event.created_at.desc()).all()
 
 
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
@@ -52,6 +52,7 @@ def create_event(
         created_by=current_user.id,
         name=payload.name,
         description=payload.description,
+        image_url=payload.image_url,
         event_type=payload.event_type,
         modality=payload.modality,
         location=payload.location,
@@ -89,6 +90,7 @@ def update_event(
 
     event.name = payload.name
     event.description = payload.description
+    event.image_url = payload.image_url
     event.event_type = payload.event_type
     event.modality = payload.modality
     event.location = payload.location
@@ -127,6 +129,8 @@ def cancel_event(
 
 def ensure_event_not_started(event: Event):
     event_start = event.start_datetime
+    if not event_start:
+        return
     if event_start.tzinfo is None:
         event_start = event_start.replace(tzinfo=timezone.utc)
     if event_start <= datetime.now(timezone.utc):

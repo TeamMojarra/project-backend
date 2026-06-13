@@ -48,6 +48,7 @@ def validate_ticket(
     require_ticket_validator(ticket.reservation.event, current_user)
 
     if ticket.status == "used":
+        ticket.event = ticket.reservation.event
         return TicketValidationResponse(valid=False, status="already_used", message="El ticket ya fue usado", ticket=ticket)
 
     ticket.status = "used"

@@ -71,12 +71,32 @@ def test_event_owner_permissions_and_date_rules(client):
     )
     assert past_event_response.status_code == 422
 
+    service_response = client.post(
+        "/api/events",
+        json={
+            "name": "Asesoría abierta",
+            "description": "Servicio sin fecha definida",
+            "event_type": "service",
+            "modality": "virtual",
+            "location": "Meet",
+            "start_datetime": None,
+            "end_datetime": None,
+            "total_capacity": 5,
+        },
+        headers=owner_headers,
+    )
+    assert service_response.status_code == 201
+    assert service_response.json()["start_datetime"] is None
+
 
 def test_rejected_payment_keeps_capacity_and_does_not_create_ticket(client):
     owner_headers = register_and_login(client, "Owner", "owner@example.com")
     buyer_headers = register_and_login(client, "Buyer", "buyer@example.com")
     event = create_event(client, owner_headers, capacity=1)
     reservation = create_reservation(client, buyer_headers, event["id"])
+
+    held_event_response = client.get(f"/api/events/{event['id']}")
+    assert held_event_response.json()["available_capacity"] == 0
 
     payment_response = client.post(
         f"/api/reservations/{reservation['id']}/pay",
@@ -104,7 +124,13 @@ def test_payment_confirmation_enforces_remaining_capacity(client):
     event = create_event(client, owner_headers, capacity=1)
 
     first_reservation = create_reservation(client, first_buyer_headers, event["id"])
-    second_reservation = create_reservation(client, second_buyer_headers, event["id"])
+    second_reservation = client.post(
+        "/api/reservations",
+        json={"event_id": event["id"], "quantity": 1},
+        headers=second_buyer_headers,
+    )
+    assert second_reservation.status_code == 400
+    assert second_reservation.json()["detail"] == "No hay cupos suficientes"
 
     first_payment = client.post(
         f"/api/reservations/{first_reservation['id']}/pay",
@@ -113,14 +139,6 @@ def test_payment_confirmation_enforces_remaining_capacity(client):
     )
     assert first_payment.status_code == 200
     assert first_payment.json()["ticket"]["ticket_code"].startswith("RSV-")
-
-    second_payment = client.post(
-        f"/api/reservations/{second_reservation['id']}/pay",
-        json={"holder_name": "Second Buyer", "result": "approved"},
-        headers=second_buyer_headers,
-    )
-    assert second_payment.status_code == 400
-    assert second_payment.json()["detail"] == "No hay cupos suficientes"
 
     event_response = client.get(f"/api/events/{event['id']}")
     assert event_response.json()["available_capacity"] == 0

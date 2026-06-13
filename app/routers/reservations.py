@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_database
-from app.dependencies import find_event
 from app.models import Event, Reservation, SimulatedPayment, Ticket, User
 from app.schemas import CheckoutResponse, PaymentCreate, ReservationCreate, ReservationResponse
 from app.security import get_current_user
@@ -20,13 +19,17 @@ def create_reservation(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
-    event = find_event(database, payload.event_id)
+    event = database.query(Event).filter(Event.id == payload.event_id).with_for_update().first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado")
     if event.created_by == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes reservar tu propio evento")
-    if event.status not in {"available", "sold_out"} or event.available_capacity < payload.quantity:
+    if event.status != "available" or event.available_capacity < payload.quantity:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay cupos suficientes")
 
     reservation = Reservation(user_id=current_user.id, event_id=event.id, quantity=payload.quantity)
+    event.available_capacity -= payload.quantity
+    event.status = "sold_out" if event.available_capacity == 0 else event.status
     database.add(reservation)
     database.commit()
     database.refresh(reservation)
@@ -78,6 +81,9 @@ def pay_reservation(
     )
 
     if payload.result == "rejected":
+        event.available_capacity += reservation.quantity
+        if event.status == "sold_out" and event.available_capacity > 0:
+            event.status = "available"
         reservation.status = "rejected"
         reservation.updated_at = datetime.now(timezone.utc)
         database.add(payment)
@@ -87,11 +93,6 @@ def pay_reservation(
         reservation.event = event
         return CheckoutResponse(payment=payment, reservation=reservation, ticket=None, message="Pago simulado rechazado")
 
-    if event.available_capacity < reservation.quantity:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay cupos suficientes")
-
-    event.available_capacity -= reservation.quantity
-    event.status = "sold_out" if event.available_capacity == 0 else event.status
     reservation.status = "confirmed"
     reservation.updated_at = datetime.now(timezone.utc)
 

@@ -101,10 +101,11 @@ class TokenResponse(BaseModel):
 class EventCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    image_url: Optional[str] = None
     event_type: str = "event"
     modality: str = "presencial"
     location: Optional[str] = None
-    start_datetime: datetime
+    start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
     total_capacity: int = Field(..., gt=0)
 
@@ -123,6 +124,18 @@ class EventCreate(BaseModel):
             raise ValueError("El tipo debe ser 'event' o 'service'")
         return value
 
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, value):
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            return None
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("La imagen debe ser una URL http o https")
+        return value
+
     @field_validator("modality")
     @classmethod
     def validate_modality(cls, value):
@@ -132,6 +145,13 @@ class EventCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates(self):
+        if self.event_type == "event" and not self.start_datetime:
+            raise ValueError("La fecha de inicio es obligatoria para eventos")
+        if self.end_datetime and not self.start_datetime:
+            raise ValueError("La fecha de inicio es obligatoria si se define una fecha de fin")
+        if not self.start_datetime:
+            return self
+
         start_datetime = ensure_aware_datetime(self.start_datetime)
         if start_datetime <= datetime.now(start_datetime.tzinfo):
             raise ValueError("La fecha de inicio debe ser futura")
@@ -158,10 +178,11 @@ class EventResponse(BaseModel):
     created_by: int
     name: str
     description: Optional[str]
+    image_url: Optional[str]
     event_type: str
     modality: str
     location: Optional[str]
-    start_datetime: datetime
+    start_datetime: Optional[datetime]
     end_datetime: Optional[datetime]
     total_capacity: int
     available_capacity: int
