@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,11 +6,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_database
+from app.email import send_registration_confirmation
 from app.models import User
 from app.schemas import MessageResponse, PasswordChange, TokenResponse, UserLogin, UserRegister, UserResponse, UserUpdate
 from app.security import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
@@ -26,6 +29,11 @@ def register(payload: UserRegister, database: Session = Depends(get_database)):
     )
     database.add(user)
     database.commit()
+
+    try:
+        send_registration_confirmation(user.email, user.name)
+    except Exception as exc:
+        logger.warning("No se pudo enviar confirmación de registro: %s", exc)
 
     return MessageResponse(message="Registro exitoso. Ya puede iniciar sesión.")
 
