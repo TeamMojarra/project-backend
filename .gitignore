@@ -9,3 +9,6 @@ __pycache__/
 .idea/
 .vscode/
 .mail_outbox/
+.coverage
+.ruff_cache/
+htmlcov/

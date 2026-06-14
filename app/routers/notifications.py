@@ -32,11 +32,15 @@ def mark_notification_read(
 ):
     notification = (
         database.query(Notification)
-        .filter(Notification.id == notification_id, Notification.user_id == current_user.id)
+        .filter(
+            Notification.id == notification_id, Notification.user_id == current_user.id
+        )
         .first()
     )
     if not notification:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notificación no encontrada")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Notificación no encontrada"
+        )
     notification.status = "read"
     database.commit()
     database.refresh(notification)
@@ -49,7 +53,9 @@ def mark_all_notifications_read(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
-    database.query(Notification).filter(Notification.user_id == current_user.id).update({"status": "read"})
+    database.query(Notification).filter(Notification.user_id == current_user.id).update(
+        {"status": "read"}
+    )
     database.commit()
     return MessageResponse(message="Notificaciones marcadas como leídas")
 
@@ -59,6 +65,8 @@ def clear_notifications(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
-    database.query(Notification).filter(Notification.user_id == current_user.id).delete()
+    database.query(Notification).filter(
+        Notification.user_id == current_user.id
+    ).delete()
     database.commit()
     return MessageResponse(message="Notificaciones eliminadas")

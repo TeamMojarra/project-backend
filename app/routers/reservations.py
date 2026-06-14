@@ -7,27 +7,50 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_database
 from app.models import Event, Reservation, SimulatedPayment, Ticket, User
-from app.schemas import CheckoutResponse, PaymentCreate, ReservationCreate, ReservationResponse
+from app.schemas import (
+    CheckoutResponse,
+    PaymentCreate,
+    ReservationCreate,
+    ReservationResponse,
+)
 from app.security import get_current_user
 
 router = APIRouter(prefix="/api", tags=["Reservations"])
 
 
-@router.post("/reservations", response_model=ReservationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/reservations",
+    response_model=ReservationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_reservation(
     payload: ReservationCreate,
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
-    event = database.query(Event).filter(Event.id == payload.event_id).with_for_update().first()
+    event = (
+        database.query(Event)
+        .filter(Event.id == payload.event_id)
+        .with_for_update()
+        .first()
+    )
     if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado"
+        )
     if event.created_by == current_user.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No puedes reservar tu propio evento")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No puedes reservar tu propio evento",
+        )
     if event.status != "available" or event.available_capacity < payload.quantity:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay cupos suficientes")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No hay cupos suficientes"
+        )
 
-    reservation = Reservation(user_id=current_user.id, event_id=event.id, quantity=payload.quantity)
+    reservation = Reservation(
+        user_id=current_user.id, event_id=event.id, quantity=payload.quantity
+    )
     event.available_capacity -= payload.quantity
     event.status = "sold_out" if event.available_capacity == 0 else event.status
     database.add(reservation)
@@ -60,17 +83,30 @@ def pay_reservation(
 ):
     reservation = (
         database.query(Reservation)
-        .filter(Reservation.id == reservation_id, Reservation.user_id == current_user.id)
+        .filter(
+            Reservation.id == reservation_id, Reservation.user_id == current_user.id
+        )
         .first()
     )
     if not reservation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reserva no encontrada")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reserva no encontrada"
+        )
     if reservation.status != "pending_payment":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La reserva ya fue procesada")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="La reserva ya fue procesada"
+        )
 
-    event = database.query(Event).filter(Event.id == reservation.event_id).with_for_update().first()
+    event = (
+        database.query(Event)
+        .filter(Event.id == reservation.event_id)
+        .with_for_update()
+        .first()
+    )
     if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado"
+        )
 
     payment = SimulatedPayment(
         reservation_id=reservation.id,
@@ -91,7 +127,12 @@ def pay_reservation(
         database.refresh(payment)
         database.refresh(reservation)
         reservation.event = event
-        return CheckoutResponse(payment=payment, reservation=reservation, ticket=None, message="Pago simulado rechazado")
+        return CheckoutResponse(
+            payment=payment,
+            reservation=reservation,
+            ticket=None,
+            message="Pago simulado rechazado",
+        )
 
     reservation.status = "confirmed"
     reservation.updated_at = datetime.now(timezone.utc)
@@ -108,7 +149,12 @@ def pay_reservation(
     database.refresh(ticket)
     database.refresh(reservation)
     reservation.event = event
-    return CheckoutResponse(payment=payment, reservation=reservation, ticket=ticket, message="Pago aprobado y ticket generado")
+    return CheckoutResponse(
+        payment=payment,
+        reservation=reservation,
+        ticket=ticket,
+        message="Pago aprobado y ticket generado",
+    )
 
 
 def mask_card(card_number: str | None) -> str:

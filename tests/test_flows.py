@@ -14,7 +14,9 @@ def register_and_login(client, name, email):
     )
     assert register_response.status_code == 201
 
-    login_response = client.post("/api/auth/login", json={"email": email, "password": password})
+    login_response = client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
     assert login_response.status_code == 200
     token = login_response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
@@ -120,7 +122,9 @@ def test_rejected_payment_keeps_capacity_and_does_not_create_ticket(client):
 def test_payment_confirmation_enforces_remaining_capacity(client):
     owner_headers = register_and_login(client, "Owner", "owner@example.com")
     first_buyer_headers = register_and_login(client, "First Buyer", "first@example.com")
-    second_buyer_headers = register_and_login(client, "Second Buyer", "second@example.com")
+    second_buyer_headers = register_and_login(
+        client, "Second Buyer", "second@example.com"
+    )
     event = create_event(client, owner_headers, capacity=1)
 
     first_reservation = create_reservation(client, first_buyer_headers, event["id"])
@@ -157,15 +161,21 @@ def test_only_event_owner_can_validate_ticket(client):
     )
     ticket_code = payment.json()["ticket"]["ticket_code"]
 
-    buyer_validation = client.post(f"/api/tickets/{ticket_code}/validate", headers=buyer_headers)
+    buyer_validation = client.post(
+        f"/api/tickets/{ticket_code}/validate", headers=buyer_headers
+    )
     assert buyer_validation.status_code == 403
 
-    owner_validation = client.post(f"/api/tickets/{ticket_code}/validate", headers=owner_headers)
+    owner_validation = client.post(
+        f"/api/tickets/{ticket_code}/validate", headers=owner_headers
+    )
     assert owner_validation.status_code == 200
     assert owner_validation.json()["valid"] is True
     assert owner_validation.json()["status"] == "valid"
 
-    duplicate_validation = client.post(f"/api/tickets/{ticket_code}/validate", headers=owner_headers)
+    duplicate_validation = client.post(
+        f"/api/tickets/{ticket_code}/validate", headers=owner_headers
+    )
     assert duplicate_validation.status_code == 200
     assert duplicate_validation.json()["valid"] is False
     assert duplicate_validation.json()["status"] == "already_used"

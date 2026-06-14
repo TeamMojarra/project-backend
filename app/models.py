@@ -21,7 +21,9 @@ class User(Base):
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(DateTime, nullable=True)
 
-    events = relationship("Event", foreign_keys="Event.created_by", back_populates="creator")
+    events = relationship(
+        "Event", foreign_keys="Event.created_by", back_populates="creator"
+    )
     reservations = relationship("Reservation", back_populates="user")
     tickets = relationship("Ticket", back_populates="user")
 
@@ -64,7 +66,9 @@ class Reservation(Base):
 
     user = relationship("User", back_populates="reservations")
     event = relationship("Event", back_populates="reservations")
-    payment = relationship("SimulatedPayment", back_populates="reservation", uselist=False)
+    payment = relationship(
+        "SimulatedPayment", back_populates="reservation", uselist=False
+    )
     tickets = relationship("Ticket", back_populates="reservation")
 
 
@@ -72,7 +76,9 @@ class SimulatedPayment(Base):
     __tablename__ = "simulated_payments"
 
     id = Column(Integer, primary_key=True, index=True)
-    reservation_id = Column(Integer, ForeignKey("reservations.id"), unique=True, nullable=False)
+    reservation_id = Column(
+        Integer, ForeignKey("reservations.id"), unique=True, nullable=False
+    )
     holder_name = Column(String(100), nullable=False)
     masked_card_number = Column(String(25), nullable=False)
     amount = Column(Float, nullable=False, default=0.0)
