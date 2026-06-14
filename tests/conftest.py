@@ -1,14 +1,8 @@
-import sys
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-project_root = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(project_root))
 
 from app.database import Base, get_database
 from app.main import app

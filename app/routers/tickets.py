@@ -43,18 +43,34 @@ def validate_ticket(
         .first()
     )
     if not ticket:
-        return TicketValidationResponse(valid=False, status="invalid", message="Ticket no encontrado")
+        return TicketValidationResponse(
+            valid=False, status="invalid", message="Ticket no encontrado"
+        )
 
     require_ticket_validator(ticket.reservation.event, current_user)
 
     if ticket.status == "used":
         ticket.event = ticket.reservation.event
-        return TicketValidationResponse(valid=False, status="already_used", message="El ticket ya fue usado", ticket=ticket)
+        return TicketValidationResponse(
+            valid=False,
+            status="already_used",
+            message="El ticket ya fue usado",
+            ticket=ticket,
+        )
 
     ticket.status = "used"
     ticket.used_at = datetime.now(timezone.utc)
-    database.add(TicketValidation(ticket_id=ticket.id, validated_by=current_user.id, validation_result="valid"))
+    database.add(
+        TicketValidation(
+            ticket_id=ticket.id, validated_by=current_user.id, validation_result="valid"
+        )
+    )
     database.commit()
     database.refresh(ticket)
     ticket.event = ticket.reservation.event
-    return TicketValidationResponse(valid=True, status="valid", message="Ticket validado correctamente", ticket=ticket)
+    return TicketValidationResponse(
+        valid=True,
+        status="valid",
+        message="Ticket validado correctamente",
+        ticket=ticket,
+    )

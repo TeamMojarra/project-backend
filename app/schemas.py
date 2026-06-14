@@ -2,7 +2,14 @@ import re
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class MessageResponse(BaseModel):
@@ -148,7 +155,9 @@ class EventCreate(BaseModel):
         if self.event_type == "event" and not self.start_datetime:
             raise ValueError("La fecha de inicio es obligatoria para eventos")
         if self.end_datetime and not self.start_datetime:
-            raise ValueError("La fecha de inicio es obligatoria si se define una fecha de fin")
+            raise ValueError(
+                "La fecha de inicio es obligatoria si se define una fecha de fin"
+            )
         if not self.start_datetime:
             return self
 
@@ -195,7 +204,7 @@ class EventResponse(BaseModel):
 
 
 class ReservationCreate(BaseModel):
-    event_id: int
+    event_id: int = Field(..., gt=0)
     quantity: int = Field(..., gt=0)
 
 
@@ -287,6 +296,8 @@ class NotificationResponse(BaseModel):
 def validate_password_strength(value: str):
     if len(value) < 8:
         raise ValueError("La contraseña debe tener al menos 8 caracteres")
+    if re.search(r"\s", value):
+        raise ValueError("La contraseña no debe incluir espacios")
     if not re.search(r"[A-Z]", value):
         raise ValueError("La contraseña debe incluir una mayúscula")
     if not re.search(r"[a-z]", value):

@@ -37,9 +37,13 @@ def list_events(
         query = query.filter(Event.created_by != exclude_creator)
     if search:
         pattern = f"%{search.strip()}%"
-        query = query.filter(or_(Event.name.ilike(pattern), Event.description.ilike(pattern)))
+        query = query.filter(
+            or_(Event.name.ilike(pattern), Event.description.ilike(pattern))
+        )
 
-    return query.order_by(nullslast(Event.start_datetime.asc()), Event.created_at.desc()).all()
+    return query.order_by(
+        nullslast(Event.start_datetime.asc()), Event.created_at.desc()
+    ).all()
 
 
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
@@ -86,7 +90,10 @@ def update_event(
 
     reserved = event.total_capacity - event.available_capacity
     if payload.total_capacity < reserved:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El cupo no puede ser menor a las reservas existentes")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El cupo no puede ser menor a las reservas existentes",
+        )
 
     event.name = payload.name
     event.description = payload.description
@@ -116,9 +123,16 @@ def cancel_event(
     require_event_owner(event, current_user)
     ensure_event_not_started(event)
 
-    confirmed = database.query(Reservation).filter_by(event_id=event.id, status="confirmed").count()
+    confirmed = (
+        database.query(Reservation)
+        .filter_by(event_id=event.id, status="confirmed")
+        .count()
+    )
     if confirmed:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No se puede cancelar un evento con reservas confirmadas")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede cancelar un evento con reservas confirmadas",
+        )
 
     event.status = "cancelled"
     event.updated_by = current_user.id
@@ -134,4 +148,7 @@ def ensure_event_not_started(event: Event):
     if event_start.tzinfo is None:
         event_start = event_start.replace(tzinfo=timezone.utc)
     if event_start <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede modificar un evento que ya inició")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede modificar un evento que ya inició",
+        )
