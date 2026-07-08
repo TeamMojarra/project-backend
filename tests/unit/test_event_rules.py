@@ -20,6 +20,7 @@ def valid_event_payload(**overrides):
         "start_datetime": future_datetime(),
         "end_datetime": future_datetime(hours=4),
         "total_capacity": 30,
+        "max_tickets_per_purchase": 1,
     }
     payload.update(overrides)
     return payload
@@ -135,6 +136,17 @@ def test_event_accepts_one_as_minimum_capacity_boundary():
     event = EventCreate(**valid_event_payload(total_capacity=1))
 
     assert event.total_capacity == 1
+
+
+def test_event_rejects_purchase_limit_larger_than_capacity():
+    with pytest.raises(ValidationError, match="limite por compra"):
+        EventCreate(**valid_event_payload(total_capacity=2, max_tickets_per_purchase=3))
+
+
+def test_event_accepts_purchase_limit_within_capacity():
+    event = EventCreate(**valid_event_payload(total_capacity=5, max_tickets_per_purchase=3))
+
+    assert event.max_tickets_per_purchase == 3
 
 
 def test_event_update_rejects_invalid_status():

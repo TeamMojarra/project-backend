@@ -64,6 +64,7 @@ def create_event(
         end_datetime=payload.end_datetime,
         total_capacity=payload.total_capacity,
         available_capacity=payload.total_capacity,
+        max_tickets_per_purchase=payload.max_tickets_per_purchase,
         status="available",
     )
     database.add(event)
@@ -105,6 +106,7 @@ def update_event(
     event.end_datetime = payload.end_datetime
     event.total_capacity = payload.total_capacity
     event.available_capacity = payload.total_capacity - reserved
+    event.max_tickets_per_purchase = payload.max_tickets_per_purchase
     event.status = "sold_out" if event.available_capacity == 0 else payload.status
     event.updated_by = current_user.id
     event.updated_at = datetime.now(timezone.utc)

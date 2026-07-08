@@ -22,7 +22,12 @@ def register_and_login(client, name, email):
     return {"Authorization": f"Bearer {token}"}
 
 
-def event_payload(name="Charla de Python", capacity=10, start_delta_days=2):
+def event_payload(
+    name="Charla de Python",
+    capacity=10,
+    start_delta_days=2,
+    max_tickets_per_purchase=1,
+):
     start = datetime.now(timezone.utc) + timedelta(days=start_delta_days)
     end = start + timedelta(hours=2)
     return {
@@ -34,6 +39,7 @@ def event_payload(name="Charla de Python", capacity=10, start_delta_days=2):
         "start_datetime": start.isoformat(),
         "end_datetime": end.isoformat(),
         "total_capacity": capacity,
+        "max_tickets_per_purchase": max_tickets_per_purchase,
     }
 
 
@@ -84,6 +90,7 @@ def test_event_owner_permissions_and_date_rules(client):
             "start_datetime": None,
             "end_datetime": None,
             "total_capacity": 5,
+            "max_tickets_per_purchase": 1,
         },
         headers=owner_headers,
     )
@@ -117,6 +124,56 @@ def test_rejected_payment_keeps_capacity_and_does_not_create_ticket(client):
     tickets_response = client.get("/api/tickets/my", headers=buyer_headers)
     assert tickets_response.status_code == 200
     assert tickets_response.json() == []
+
+    reservations_response = client.get("/api/reservations/my", headers=buyer_headers)
+    assert reservations_response.status_code == 200
+    assert reservations_response.json() == []
+
+
+def test_event_purchase_limit_blocks_larger_reservations(client):
+    owner_headers = register_and_login(client, "Owner", "owner@example.com")
+    buyer_headers = register_and_login(client, "Buyer", "buyer@example.com")
+    event = create_event(
+        client, owner_headers, capacity=5, max_tickets_per_purchase=2
+    )
+
+    rejected_reservation = client.post(
+        "/api/reservations",
+        json={"event_id": event["id"], "quantity": 3},
+        headers=buyer_headers,
+    )
+    assert rejected_reservation.status_code == 400
+    assert "hasta 2 tickets" in rejected_reservation.json()["detail"]
+
+    reservation = create_reservation(client, buyer_headers, event["id"], quantity=2)
+    assert reservation["quantity"] == 2
+
+    payment_response = client.post(
+        f"/api/reservations/{reservation['id']}/pay",
+        json={"holder_name": "Buyer", "result": "approved"},
+        headers=buyer_headers,
+    )
+    assert payment_response.status_code == 200
+    assert len(payment_response.json()["tickets"]) == 2
+
+    tickets_response = client.get("/api/tickets/my", headers=buyer_headers)
+    assert len(tickets_response.json()) == 2
+
+
+def test_cancel_pending_reservation_releases_capacity(client):
+    owner_headers = register_and_login(client, "Owner", "owner@example.com")
+    buyer_headers = register_and_login(client, "Buyer", "buyer@example.com")
+    event = create_event(client, owner_headers, capacity=1)
+    reservation = create_reservation(client, buyer_headers, event["id"])
+
+    cancel_response = client.delete(
+        f"/api/reservations/{reservation['id']}", headers=buyer_headers
+    )
+    assert cancel_response.status_code == 200
+
+    event_response = client.get(f"/api/events/{event['id']}")
+    assert event_response.json()["available_capacity"] == 1
+    assert event_response.json()["status"] == "available"
 
 
 def test_payment_confirmation_enforces_remaining_capacity(client):
@@ -172,6 +229,8 @@ def test_only_event_owner_can_validate_ticket(client):
     assert owner_validation.status_code == 200
     assert owner_validation.json()["valid"] is True
     assert owner_validation.json()["status"] == "valid"
+    assert owner_validation.json()["ticket"]["event"]["name"] == event["name"]
+    assert owner_validation.json()["ticket"]["user"]["name"] == "Buyer"
 
     duplicate_validation = client.post(
         f"/api/tickets/{ticket_code}/validate", headers=owner_headers

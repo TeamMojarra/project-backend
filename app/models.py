@@ -43,6 +43,7 @@ class Event(Base):
     end_datetime = Column(DateTime, nullable=True)
     total_capacity = Column(Integer, nullable=False)
     available_capacity = Column(Integer, nullable=False)
+    max_tickets_per_purchase = Column(Integer, nullable=False, default=1)
     status = Column(String(30), nullable=False, index=True, default="available")
     created_at = Column(DateTime, nullable=False, default=utc_now)
     updated_at = Column(DateTime, nullable=True)

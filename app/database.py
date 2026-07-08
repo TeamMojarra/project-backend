@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
@@ -27,7 +27,24 @@ def ensure_database():
     import app.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    ensure_schema_compatibility()
     _database_ready = True
+
+
+def ensure_schema_compatibility():
+    inspector = inspect(engine)
+    if "events" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("events")}
+    if "max_tickets_per_purchase" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE events "
+                    "ADD COLUMN max_tickets_per_purchase INTEGER NOT NULL DEFAULT 1"
+                )
+            )
 
 
 def get_database():

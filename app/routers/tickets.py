@@ -20,7 +20,7 @@ def list_my_tickets(
 ):
     tickets = (
         database.query(Ticket)
-        .options(joinedload(Ticket.reservation).joinedload(Reservation.event))
+        .options(joinedload(Ticket.reservation).joinedload(Reservation.event), joinedload(Ticket.user))
         .filter(Ticket.user_id == current_user.id)
         .order_by(Ticket.generated_at.desc())
         .all()
@@ -38,7 +38,7 @@ def validate_ticket(
 ):
     ticket = (
         database.query(Ticket)
-        .options(joinedload(Ticket.reservation).joinedload(Reservation.event))
+        .options(joinedload(Ticket.reservation).joinedload(Reservation.event), joinedload(Ticket.user))
         .filter(Ticket.ticket_code == ticket_code)
         .first()
     )

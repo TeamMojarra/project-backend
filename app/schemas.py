@@ -115,6 +115,7 @@ class EventCreate(BaseModel):
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
     total_capacity: int = Field(..., gt=0)
+    max_tickets_per_purchase: int = Field(1, gt=0)
 
     @field_validator("name")
     @classmethod
@@ -152,6 +153,8 @@ class EventCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates(self):
+        if self.max_tickets_per_purchase > self.total_capacity:
+            raise ValueError("El limite por compra no puede superar la capacidad")
         if self.event_type == "event" and not self.start_datetime:
             raise ValueError("La fecha de inicio es obligatoria para eventos")
         if self.end_datetime and not self.start_datetime:
@@ -195,6 +198,7 @@ class EventResponse(BaseModel):
     end_datetime: Optional[datetime]
     total_capacity: int
     available_capacity: int
+    max_tickets_per_purchase: int
     status: str
     created_at: datetime
     updated_at: Optional[datetime]
@@ -224,6 +228,8 @@ class ReservationResponse(BaseModel):
 class PaymentCreate(BaseModel):
     holder_name: str
     card_number: Optional[str] = None
+    expiry_date: Optional[str] = None
+    cvc: Optional[str] = None
     result: str = "approved"
 
     @field_validator("holder_name")
@@ -264,6 +270,7 @@ class TicketResponse(BaseModel):
     used_at: Optional[datetime]
     user_id: int
     event: Optional[EventResponse] = None
+    user: Optional[UserResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -272,6 +279,7 @@ class CheckoutResponse(BaseModel):
     payment: PaymentResponse
     reservation: ReservationResponse
     ticket: Optional[TicketResponse]
+    tickets: list[TicketResponse] = Field(default_factory=list)
     message: str
 
 

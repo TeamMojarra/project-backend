@@ -9,6 +9,7 @@ from app.database import get_database
 from app.models import Event, Reservation, SimulatedPayment, Ticket, User
 from app.schemas import (
     CheckoutResponse,
+    MessageResponse,
     PaymentCreate,
     ReservationCreate,
     ReservationResponse,
@@ -47,6 +48,14 @@ def create_reservation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No hay cupos suficientes"
         )
+    if payload.quantity > event.max_tickets_per_purchase:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Este evento permite comprar hasta "
+                f"{event.max_tickets_per_purchase} tickets por reserva"
+            ),
+        )
 
     reservation = Reservation(
         user_id=current_user.id, event_id=event.id, quantity=payload.quantity
@@ -69,9 +78,53 @@ def list_my_reservations(
         database.query(Reservation)
         .options(joinedload(Reservation.event))
         .filter(Reservation.user_id == current_user.id)
+        .filter(Reservation.status.in_(("pending_payment", "confirmed")))
         .order_by(Reservation.created_at.desc())
         .all()
     )
+
+
+@router.delete("/reservations/{reservation_id}", response_model=MessageResponse)
+def cancel_pending_reservation(
+    reservation_id: int,
+    current_user: User = Depends(get_current_user),
+    database: Session = Depends(get_database),
+):
+    reservation = (
+        database.query(Reservation)
+        .filter(
+            Reservation.id == reservation_id, Reservation.user_id == current_user.id
+        )
+        .first()
+    )
+    if not reservation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reserva no encontrada"
+        )
+    if reservation.status != "pending_payment":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo puedes cancelar reservas pendientes de pago",
+        )
+
+    event = (
+        database.query(Event)
+        .filter(Event.id == reservation.event_id)
+        .with_for_update()
+        .first()
+    )
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado"
+        )
+
+    event.available_capacity += reservation.quantity
+    if event.status == "sold_out" and event.available_capacity > 0:
+        event.status = "available"
+    reservation.status = "cancelled"
+    reservation.updated_at = datetime.now(timezone.utc)
+    database.commit()
+    return MessageResponse(message="Reserva cancelada correctamente")
 
 
 @router.post("/reservations/{reservation_id}/pay", response_model=CheckoutResponse)
@@ -137,22 +190,29 @@ def pay_reservation(
     reservation.status = "confirmed"
     reservation.updated_at = datetime.now(timezone.utc)
 
-    ticket = Ticket(
-        reservation_id=reservation.id,
-        user_id=current_user.id,
-        ticket_code=f"RSV-{uuid4().hex[:10].upper()}",
-        qr_code_url=None,
-    )
-    database.add_all([payment, ticket])
+    tickets = [
+        Ticket(
+            reservation_id=reservation.id,
+            user_id=current_user.id,
+            ticket_code=f"RSV-{uuid4().hex[:10].upper()}",
+            qr_code_url=None,
+        )
+        for _ in range(reservation.quantity)
+    ]
+    database.add_all([payment, *tickets])
     database.commit()
     database.refresh(payment)
-    database.refresh(ticket)
+    for ticket in tickets:
+        database.refresh(ticket)
+        ticket.event = event
+        ticket.user = current_user
     database.refresh(reservation)
     reservation.event = event
     return CheckoutResponse(
         payment=payment,
         reservation=reservation,
-        ticket=ticket,
+        ticket=tickets[0] if tickets else None,
+        tickets=tickets,
         message="Pago aprobado y ticket generado",
     )
 
