@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_database
-from app.models import Event, Reservation, SimulatedPayment, Ticket, User
+from app.models import Event, Reservation, ServiceSlot, SimulatedPayment, Ticket, User
 from app.schemas import (
     CheckoutResponse,
     MessageResponse,
@@ -44,6 +44,33 @@ def create_reservation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No puedes reservar tu propio evento",
         )
+    service_slot = None
+    if event.event_type == "service":
+        if payload.quantity != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Los servicios se reservan de a un turno",
+            )
+        if not payload.service_slot_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selecciona un horario disponible para este servicio",
+            )
+        service_slot = (
+            database.query(ServiceSlot)
+            .filter(
+                ServiceSlot.id == payload.service_slot_id,
+                ServiceSlot.event_id == event.id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if not service_slot or service_slot.status != "available":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ese horario ya no esta disponible",
+            )
+
     if event.status != "available" or event.available_capacity < payload.quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No hay cupos suficientes"
@@ -58,14 +85,21 @@ def create_reservation(
         )
 
     reservation = Reservation(
-        user_id=current_user.id, event_id=event.id, quantity=payload.quantity
+        user_id=current_user.id,
+        event_id=event.id,
+        quantity=payload.quantity,
+        service_slot_id=payload.service_slot_id,
     )
     event.available_capacity -= payload.quantity
     event.status = "sold_out" if event.available_capacity == 0 else event.status
+    if service_slot:
+        service_slot.status = "held"
+        service_slot.updated_at = datetime.now(timezone.utc)
     database.add(reservation)
     database.commit()
     database.refresh(reservation)
     reservation.event = event
+    reservation.service_slot = service_slot
     return reservation
 
 
@@ -76,7 +110,7 @@ def list_my_reservations(
 ):
     return (
         database.query(Reservation)
-        .options(joinedload(Reservation.event))
+        .options(joinedload(Reservation.event), joinedload(Reservation.service_slot))
         .filter(Reservation.user_id == current_user.id)
         .filter(Reservation.status.in_(("pending_payment", "confirmed")))
         .order_by(Reservation.created_at.desc())
@@ -121,6 +155,9 @@ def cancel_pending_reservation(
     event.available_capacity += reservation.quantity
     if event.status == "sold_out" and event.available_capacity > 0:
         event.status = "available"
+    if reservation.service_slot:
+        reservation.service_slot.status = "available"
+        reservation.service_slot.updated_at = datetime.now(timezone.utc)
     reservation.status = "cancelled"
     reservation.updated_at = datetime.now(timezone.utc)
     database.commit()
@@ -165,7 +202,7 @@ def pay_reservation(
         reservation_id=reservation.id,
         holder_name=payload.holder_name,
         masked_card_number=mask_card(payload.card_number),
-        amount=0.0,
+        amount=float(event.price or 0) * reservation.quantity,
         result=payload.result,
     )
 
@@ -173,6 +210,9 @@ def pay_reservation(
         event.available_capacity += reservation.quantity
         if event.status == "sold_out" and event.available_capacity > 0:
             event.status = "available"
+        if reservation.service_slot:
+            reservation.service_slot.status = "available"
+            reservation.service_slot.updated_at = datetime.now(timezone.utc)
         reservation.status = "rejected"
         reservation.updated_at = datetime.now(timezone.utc)
         database.add(payment)
@@ -189,6 +229,9 @@ def pay_reservation(
 
     reservation.status = "confirmed"
     reservation.updated_at = datetime.now(timezone.utc)
+    if reservation.service_slot:
+        reservation.service_slot.status = "booked"
+        reservation.service_slot.updated_at = datetime.now(timezone.utc)
 
     tickets = [
         Ticket(

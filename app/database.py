@@ -45,6 +45,20 @@ def ensure_schema_compatibility():
                     "ADD COLUMN max_tickets_per_purchase INTEGER NOT NULL DEFAULT 1"
                 )
             )
+    if "price" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE events ADD COLUMN price FLOAT NOT NULL DEFAULT 0")
+            )
+
+    reservation_columns = {
+        column["name"] for column in inspector.get_columns("reservations")
+    }
+    if "service_slot_id" not in reservation_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE reservations ADD COLUMN service_slot_id INTEGER")
+            )
 
 
 def get_database():

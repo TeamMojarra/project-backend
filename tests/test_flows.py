@@ -27,6 +27,7 @@ def event_payload(
     capacity=10,
     start_delta_days=2,
     max_tickets_per_purchase=1,
+    price=0.0,
 ):
     start = datetime.now(timezone.utc) + timedelta(days=start_delta_days)
     end = start + timedelta(hours=2)
@@ -36,6 +37,7 @@ def event_payload(
         "event_type": "event",
         "modality": "presencial",
         "location": "Auditorio",
+        "price": price,
         "start_datetime": start.isoformat(),
         "end_datetime": end.isoformat(),
         "total_capacity": capacity,
@@ -87,6 +89,7 @@ def test_event_owner_permissions_and_date_rules(client):
             "event_type": "service",
             "modality": "virtual",
             "location": "Meet",
+            "price": 0.0,
             "start_datetime": None,
             "end_datetime": None,
             "total_capacity": 5,
@@ -160,6 +163,27 @@ def test_event_purchase_limit_blocks_larger_reservations(client):
     assert len(tickets_response.json()) == 2
 
 
+def test_payment_amount_uses_event_price_and_quantity(client):
+    owner_headers = register_and_login(client, "Owner", "owner@example.com")
+    buyer_headers = register_and_login(client, "Buyer", "buyer@example.com")
+    event = create_event(
+        client,
+        owner_headers,
+        capacity=5,
+        max_tickets_per_purchase=3,
+        price=25.5,
+    )
+    reservation = create_reservation(client, buyer_headers, event["id"], quantity=3)
+
+    payment_response = client.post(
+        f"/api/reservations/{reservation['id']}/pay",
+        json={"holder_name": "Buyer", "result": "approved"},
+        headers=buyer_headers,
+    )
+    assert payment_response.status_code == 200
+    assert payment_response.json()["payment"]["amount"] == 76.5
+
+
 def test_cancel_pending_reservation_releases_capacity(client):
     owner_headers = register_and_login(client, "Owner", "owner@example.com")
     buyer_headers = register_and_login(client, "Buyer", "buyer@example.com")
@@ -174,6 +198,114 @@ def test_cancel_pending_reservation_releases_capacity(client):
     event_response = client.get(f"/api/events/{event['id']}")
     assert event_response.json()["available_capacity"] == 1
     assert event_response.json()["status"] == "available"
+
+
+def test_service_slots_can_be_generated_and_reserved(client):
+    owner_headers = register_and_login(client, "Barber", "barber@example.com")
+    buyer_headers = register_and_login(client, "Client", "client@example.com")
+    service_response = client.post(
+        "/api/events",
+        json={
+            "name": "Barberia",
+            "description": "Corte clasico",
+            "event_type": "service",
+            "modality": "presencial",
+            "location": "Local 1",
+            "price": 12.0,
+            "start_datetime": None,
+            "end_datetime": None,
+            "total_capacity": 1,
+            "max_tickets_per_purchase": 1,
+        },
+        headers=owner_headers,
+    )
+    assert service_response.status_code == 201
+    service = service_response.json()
+    start = (datetime.now(timezone.utc) + timedelta(days=1)).date()
+    generate_response = client.post(
+        f"/api/events/{service['id']}/slots/generate",
+        json={
+            "start_date": start.isoformat(),
+            "end_date": start.isoformat(),
+            "weekdays": [start.weekday()],
+            "start_time": "09:00:00",
+            "end_time": "10:00:00",
+            "slot_minutes": 30,
+        },
+        headers=owner_headers,
+    )
+    assert generate_response.status_code == 200
+    slots = generate_response.json()
+    assert len(slots) == 2
+
+    reservation_response = client.post(
+        "/api/reservations",
+        json={"event_id": service["id"], "quantity": 1, "service_slot_id": slots[0]["id"]},
+        headers=buyer_headers,
+    )
+    assert reservation_response.status_code == 201
+    assert reservation_response.json()["service_slot"]["id"] == slots[0]["id"]
+
+    available_slots = client.get(f"/api/events/{service['id']}/slots")
+    assert len(available_slots.json()) == 1
+
+    payment_response = client.post(
+        f"/api/reservations/{reservation_response.json()['id']}/pay",
+        json={"holder_name": "Client", "result": "approved"},
+        headers=buyer_headers,
+    )
+    assert payment_response.status_code == 200
+    assert payment_response.json()["payment"]["amount"] == 12.0
+
+
+def test_rejected_service_payment_releases_slot(client):
+    owner_headers = register_and_login(client, "Barber", "barber@example.com")
+    buyer_headers = register_and_login(client, "Client", "client@example.com")
+    service_response = client.post(
+        "/api/events",
+        json={
+            "name": "Barberia",
+            "description": "Corte clasico",
+            "event_type": "service",
+            "modality": "presencial",
+            "location": "Local 1",
+            "price": 12.0,
+            "start_datetime": None,
+            "end_datetime": None,
+            "total_capacity": 1,
+            "max_tickets_per_purchase": 1,
+        },
+        headers=owner_headers,
+    )
+    service = service_response.json()
+    start = (datetime.now(timezone.utc) + timedelta(days=1)).date()
+    slots = client.post(
+        f"/api/events/{service['id']}/slots/generate",
+        json={
+            "start_date": start.isoformat(),
+            "end_date": start.isoformat(),
+            "weekdays": [start.weekday()],
+            "start_time": "09:00:00",
+            "end_time": "09:30:00",
+            "slot_minutes": 30,
+        },
+        headers=owner_headers,
+    ).json()
+    reservation = client.post(
+        "/api/reservations",
+        json={"event_id": service["id"], "quantity": 1, "service_slot_id": slots[0]["id"]},
+        headers=buyer_headers,
+    ).json()
+
+    payment_response = client.post(
+        f"/api/reservations/{reservation['id']}/pay",
+        json={"holder_name": "Client", "result": "rejected"},
+        headers=buyer_headers,
+    )
+    assert payment_response.status_code == 200
+
+    available_slots = client.get(f"/api/events/{service['id']}/slots")
+    assert len(available_slots.json()) == 1
 
 
 def test_payment_confirmation_enforces_remaining_capacity(client):

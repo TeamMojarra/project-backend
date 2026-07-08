@@ -17,6 +17,7 @@ def valid_event_payload(**overrides):
         "event_type": "event",
         "modality": "presencial",
         "location": "Auditorio",
+        "price": 0.0,
         "start_datetime": future_datetime(),
         "end_datetime": future_datetime(hours=4),
         "total_capacity": 30,
@@ -147,6 +148,17 @@ def test_event_accepts_purchase_limit_within_capacity():
     event = EventCreate(**valid_event_payload(total_capacity=5, max_tickets_per_purchase=3))
 
     assert event.max_tickets_per_purchase == 3
+
+
+def test_event_rejects_negative_price():
+    with pytest.raises(ValidationError):
+        EventCreate(**valid_event_payload(price=-1))
+
+
+def test_event_accepts_price():
+    event = EventCreate(**valid_event_payload(price=19.99))
+
+    assert event.price == 19.99
 
 
 def test_event_update_rejects_invalid_status():

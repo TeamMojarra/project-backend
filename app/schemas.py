@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Optional
 
 from pydantic import (
@@ -112,6 +112,7 @@ class EventCreate(BaseModel):
     event_type: str = "event"
     modality: str = "presencial"
     location: Optional[str] = None
+    price: float = Field(0.0, ge=0)
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
     total_capacity: int = Field(..., gt=0)
@@ -194,6 +195,7 @@ class EventResponse(BaseModel):
     event_type: str
     modality: str
     location: Optional[str]
+    price: float
     start_datetime: Optional[datetime]
     end_datetime: Optional[datetime]
     total_capacity: int
@@ -210,6 +212,39 @@ class EventResponse(BaseModel):
 class ReservationCreate(BaseModel):
     event_id: int = Field(..., gt=0)
     quantity: int = Field(..., gt=0)
+    service_slot_id: Optional[int] = Field(None, gt=0)
+
+
+class ServiceSlotResponse(BaseModel):
+    id: int
+    event_id: int
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServiceSlotGenerate(BaseModel):
+    start_date: date
+    end_date: date
+    weekdays: list[int]
+    start_time: time
+    end_time: time
+    slot_minutes: int = Field(30, ge=15, le=480)
+
+    @model_validator(mode="after")
+    def validate_schedule(self):
+        if self.end_date < self.start_date:
+            raise ValueError("La fecha final debe ser igual o posterior a la inicial")
+        if self.end_time <= self.start_time:
+            raise ValueError("La hora final debe ser posterior a la inicial")
+        if not self.weekdays:
+            raise ValueError("Selecciona al menos un dia de atencion")
+        invalid_days = [day for day in self.weekdays if day < 0 or day > 6]
+        if invalid_days:
+            raise ValueError("Los dias deben estar entre 0 y 6")
+        return self
 
 
 class ReservationResponse(BaseModel):
@@ -221,6 +256,7 @@ class ReservationResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime]
     event: Optional[EventResponse] = None
+    service_slot: Optional[ServiceSlotResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 

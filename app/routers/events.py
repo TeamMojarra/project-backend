@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,8 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.database import get_database
 from app.dependencies import find_event, require_event_owner
-from app.models import Event, Reservation, User
-from app.schemas import EventCreate, EventResponse, EventUpdate, MessageResponse
+from app.models import Event, Reservation, ServiceSlot, User
+from app.schemas import (
+    EventCreate,
+    EventResponse,
+    EventUpdate,
+    MessageResponse,
+    ServiceSlotGenerate,
+    ServiceSlotResponse,
+)
 from app.security import get_current_user
 
 router = APIRouter(prefix="/api/events", tags=["Events"])
@@ -60,6 +67,7 @@ def create_event(
         event_type=payload.event_type,
         modality=payload.modality,
         location=payload.location,
+        price=payload.price,
         start_datetime=payload.start_datetime,
         end_datetime=payload.end_datetime,
         total_capacity=payload.total_capacity,
@@ -76,6 +84,79 @@ def create_event(
 @router.get("/{event_id}", response_model=EventResponse)
 def get_event(event_id: int, database: Session = Depends(get_database)):
     return find_event(database, event_id)
+
+
+@router.get("/{event_id}/slots", response_model=List[ServiceSlotResponse])
+def list_service_slots(
+    event_id: int,
+    include_booked: bool = False,
+    database: Session = Depends(get_database),
+):
+    event = find_event(database, event_id)
+    if event.event_type != "service":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este recurso solo aplica para servicios",
+        )
+
+    query = database.query(ServiceSlot).filter(ServiceSlot.event_id == event.id)
+    if not include_booked:
+        query = query.filter(ServiceSlot.status == "available")
+    return query.order_by(ServiceSlot.starts_at.asc()).all()
+
+
+@router.post("/{event_id}/slots/generate", response_model=List[ServiceSlotResponse])
+def generate_service_slots(
+    event_id: int,
+    payload: ServiceSlotGenerate,
+    current_user: User = Depends(get_current_user),
+    database: Session = Depends(get_database),
+):
+    event = find_event(database, event_id)
+    require_event_owner(event, current_user)
+    if event.event_type != "service":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo los servicios pueden generar horarios",
+        )
+
+    database.query(ServiceSlot).filter(
+        ServiceSlot.event_id == event.id, ServiceSlot.status == "available"
+    ).delete(synchronize_session=False)
+
+    slots = []
+    current_date = payload.start_date
+    selected_weekdays = set(payload.weekdays)
+    while current_date <= payload.end_date:
+        if current_date.weekday() in selected_weekdays:
+            slot_start = datetime.combine(current_date, payload.start_time)
+            day_end = datetime.combine(current_date, payload.end_time)
+            while slot_start + timedelta(minutes=payload.slot_minutes) <= day_end:
+                slot_end = slot_start + timedelta(minutes=payload.slot_minutes)
+                slots.append(
+                    ServiceSlot(
+                        event_id=event.id,
+                        starts_at=slot_start,
+                        ends_at=slot_end,
+                        status="available",
+                    )
+                )
+                slot_start = slot_end
+        current_date += timedelta(days=1)
+
+    if not slots:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La agenda no genera horarios disponibles",
+        )
+
+    database.add_all(slots)
+    database.flush()
+    sync_service_capacity(database, event)
+    database.commit()
+    for slot in slots:
+        database.refresh(slot)
+    return slots
 
 
 @router.put("/{event_id}", response_model=EventResponse)
@@ -102,6 +183,7 @@ def update_event(
     event.event_type = payload.event_type
     event.modality = payload.modality
     event.location = payload.location
+    event.price = payload.price
     event.start_datetime = payload.start_datetime
     event.end_datetime = payload.end_datetime
     event.total_capacity = payload.total_capacity
@@ -154,3 +236,19 @@ def ensure_event_not_started(event: Event):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se puede modificar un evento que ya inició",
         )
+
+
+def sync_service_capacity(database: Session, event: Event):
+    available = (
+        database.query(ServiceSlot)
+        .filter_by(event_id=event.id, status="available")
+        .count()
+    )
+    active = (
+        database.query(ServiceSlot)
+        .filter(ServiceSlot.event_id == event.id, ServiceSlot.status != "cancelled")
+        .count()
+    )
+    event.total_capacity = active
+    event.available_capacity = available
+    event.status = "sold_out" if available == 0 else "available"

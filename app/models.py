@@ -39,6 +39,7 @@ class Event(Base):
     event_type = Column(String(50), nullable=False, default="event")
     modality = Column(String(30), nullable=False, default="presencial")
     location = Column(String(180), nullable=True)
+    price = Column(Float, nullable=False, default=0.0)
     start_datetime = Column(DateTime, nullable=True)
     end_datetime = Column(DateTime, nullable=True)
     total_capacity = Column(Integer, nullable=False)
@@ -52,6 +53,22 @@ class Event(Base):
     creator = relationship("User", foreign_keys=[created_by], back_populates="events")
     updater = relationship("User", foreign_keys=[updated_by])
     reservations = relationship("Reservation", back_populates="event")
+    service_slots = relationship("ServiceSlot", back_populates="event")
+
+
+class ServiceSlot(Base):
+    __tablename__ = "service_slots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), index=True, nullable=False)
+    starts_at = Column(DateTime, nullable=False, index=True)
+    ends_at = Column(DateTime, nullable=False)
+    status = Column(String(30), nullable=False, index=True, default="available")
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=True)
+
+    event = relationship("Event", back_populates="service_slots")
+    reservations = relationship("Reservation", back_populates="service_slot")
 
 
 class Reservation(Base):
@@ -60,6 +77,7 @@ class Reservation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     event_id = Column(Integer, ForeignKey("events.id"), index=True, nullable=False)
+    service_slot_id = Column(Integer, ForeignKey("service_slots.id"), nullable=True)
     quantity = Column(Integer, nullable=False)
     status = Column(String(30), nullable=False, index=True, default="pending_payment")
     created_at = Column(DateTime, nullable=False, default=utc_now)
@@ -67,6 +85,7 @@ class Reservation(Base):
 
     user = relationship("User", back_populates="reservations")
     event = relationship("Event", back_populates="reservations")
+    service_slot = relationship("ServiceSlot", back_populates="reservations")
     payment = relationship(
         "SimulatedPayment", back_populates="reservation", uselist=False
     )
