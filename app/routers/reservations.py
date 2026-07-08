@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_database
 from app.dependencies import require_event_owner
 from app.models import Event, Reservation, ServiceSlot, SimulatedPayment, Ticket, User
+from app.reservation_rules import expire_pending_reservations, release_reservation_capacity
 from app.schemas import (
     CheckoutResponse,
     MessageResponse,
@@ -30,6 +31,7 @@ def create_reservation(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     event = (
         database.query(Event)
         .filter(Event.id == payload.event_id)
@@ -109,6 +111,7 @@ def list_my_reservations(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     return (
         database.query(Reservation)
         .options(joinedload(Reservation.event), joinedload(Reservation.service_slot))
@@ -125,6 +128,7 @@ def cancel_pending_reservation(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     reservation = (
         database.query(Reservation)
         .filter(
@@ -166,6 +170,7 @@ def cancel_reservation_as_owner(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     reservation = (
         database.query(Reservation)
         .options(joinedload(Reservation.event), joinedload(Reservation.service_slot))
@@ -202,6 +207,7 @@ def pay_reservation(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     reservation = (
         database.query(Reservation)
         .filter(
@@ -289,12 +295,3 @@ def pay_reservation(
 def mask_card(card_number: str | None) -> str:
     digits = "".join(char for char in (card_number or "") if char.isdigit())
     return f"**** **** **** {digits[-4:]}" if len(digits) >= 4 else "simulated"
-
-
-def release_reservation_capacity(event: Event, reservation: Reservation):
-    event.available_capacity += reservation.quantity
-    if event.status == "sold_out" and event.available_capacity > 0:
-        event.status = "available"
-    if reservation.service_slot:
-        reservation.service_slot.status = "available"
-        reservation.service_slot.updated_at = datetime.now(timezone.utc)

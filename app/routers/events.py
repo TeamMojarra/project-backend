@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_database
 from app.dependencies import find_event, require_event_owner
 from app.models import Event, Reservation, ServiceSlot, User
+from app.reservation_rules import expire_pending_reservations
 from app.schemas import (
     EventCreate,
     EventResponse,
@@ -32,6 +33,7 @@ def list_events(
     exclude_creator: Optional[int] = None,
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     query = database.query(Event)
     if not include_expired:
         query = query.filter(Event.status != "cancelled")
@@ -93,6 +95,7 @@ def list_service_slots(
     include_booked: bool = False,
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     event = find_event(database, event_id)
     if event.event_type != "service":
         raise HTTPException(
@@ -114,6 +117,7 @@ def list_event_reservations(
     current_user: User = Depends(get_current_user),
     database: Session = Depends(get_database),
 ):
+    expire_pending_reservations(database)
     event = find_event(database, event_id)
     require_event_owner(event, current_user)
     return (
