@@ -258,6 +258,52 @@ def test_service_slots_can_be_generated_and_reserved(client):
     assert payment_response.json()["payment"]["amount"] == 12.0
 
 
+def test_cancelled_service_does_not_expose_available_slots(client):
+    owner_headers = register_and_login(client, "Barber", "barber@example.com")
+    service_response = client.post(
+        "/api/events",
+        json={
+            "name": "Barberia",
+            "description": "Corte clasico",
+            "event_type": "service",
+            "modality": "presencial",
+            "location": "Local 1",
+            "price": 12.0,
+            "start_datetime": None,
+            "end_datetime": None,
+            "total_capacity": 1,
+            "max_tickets_per_purchase": 1,
+        },
+        headers=owner_headers,
+    )
+    service = service_response.json()
+    start = (datetime.now(timezone.utc) + timedelta(days=1)).date()
+    client.post(
+        f"/api/events/{service['id']}/slots/generate",
+        json={
+            "start_date": start.isoformat(),
+            "end_date": start.isoformat(),
+            "weekdays": [start.weekday()],
+            "start_time": "09:00:00",
+            "end_time": "10:00:00",
+            "slot_minutes": 30,
+        },
+        headers=owner_headers,
+    )
+
+    update_response = client.put(
+        f"/api/events/{service['id']}",
+        json={**service, "status": "cancelled"},
+        headers=owner_headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["status"] == "cancelled"
+
+    slots_response = client.get(f"/api/events/{service['id']}/slots")
+    assert slots_response.status_code == 200
+    assert slots_response.json() == []
+
+
 def test_rejected_service_payment_releases_slot(client):
     owner_headers = register_and_login(client, "Barber", "barber@example.com")
     buyer_headers = register_and_login(client, "Client", "client@example.com")
@@ -306,6 +352,40 @@ def test_rejected_service_payment_releases_slot(client):
 
     available_slots = client.get(f"/api/events/{service['id']}/slots")
     assert len(available_slots.json()) == 1
+
+
+def test_owner_can_list_and_cancel_confirmed_reservation(client):
+    owner_headers = register_and_login(client, "Owner", "owner@example.com")
+    buyer_headers = register_and_login(client, "Buyer", "buyer@example.com")
+    event = create_event(client, owner_headers, capacity=1)
+    reservation = create_reservation(client, buyer_headers, event["id"])
+    payment = client.post(
+        f"/api/reservations/{reservation['id']}/pay",
+        json={"holder_name": "Buyer", "result": "approved"},
+        headers=buyer_headers,
+    )
+    assert payment.status_code == 200
+    ticket_code = payment.json()["ticket"]["ticket_code"]
+
+    reservations_response = client.get(
+        f"/api/events/{event['id']}/reservations", headers=owner_headers
+    )
+    assert reservations_response.status_code == 200
+    assert reservations_response.json()[0]["user"]["name"] == "Buyer"
+
+    cancel_response = client.post(
+        f"/api/reservations/{reservation['id']}/owner-cancel", headers=owner_headers
+    )
+    assert cancel_response.status_code == 200
+
+    event_response = client.get(f"/api/events/{event['id']}")
+    assert event_response.json()["available_capacity"] == 1
+    validation_response = client.post(
+        f"/api/tickets/{ticket_code}/validate", headers=owner_headers
+    )
+    assert validation_response.status_code == 200
+    assert validation_response.json()["valid"] is False
+    assert validation_response.json()["status"] == "cancelled"
 
 
 def test_payment_confirmation_enforces_remaining_capacity(client):

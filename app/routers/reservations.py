@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_database
+from app.dependencies import require_event_owner
 from app.models import Event, Reservation, ServiceSlot, SimulatedPayment, Ticket, User
 from app.schemas import (
     CheckoutResponse,
@@ -152,16 +153,46 @@ def cancel_pending_reservation(
             status_code=status.HTTP_404_NOT_FOUND, detail="Evento no encontrado"
         )
 
-    event.available_capacity += reservation.quantity
-    if event.status == "sold_out" and event.available_capacity > 0:
-        event.status = "available"
-    if reservation.service_slot:
-        reservation.service_slot.status = "available"
-        reservation.service_slot.updated_at = datetime.now(timezone.utc)
+    release_reservation_capacity(event, reservation)
     reservation.status = "cancelled"
     reservation.updated_at = datetime.now(timezone.utc)
     database.commit()
     return MessageResponse(message="Reserva cancelada correctamente")
+
+
+@router.post("/reservations/{reservation_id}/owner-cancel", response_model=MessageResponse)
+def cancel_reservation_as_owner(
+    reservation_id: int,
+    current_user: User = Depends(get_current_user),
+    database: Session = Depends(get_database),
+):
+    reservation = (
+        database.query(Reservation)
+        .options(joinedload(Reservation.event), joinedload(Reservation.service_slot))
+        .filter(Reservation.id == reservation_id)
+        .first()
+    )
+    if not reservation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reserva no encontrada"
+        )
+    require_event_owner(reservation.event, current_user)
+    if reservation.status not in {"pending_payment", "confirmed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La reserva ya fue cancelada o procesada",
+        )
+
+    release_reservation_capacity(reservation.event, reservation)
+    reservation.status = "cancelled"
+    reservation.updated_at = datetime.now(timezone.utc)
+    database.query(Ticket).filter(Ticket.reservation_id == reservation.id).update(
+        {"status": "cancelled"}, synchronize_session=False
+    )
+    database.commit()
+    return MessageResponse(
+        message="Reserva cancelada. Procesa el reembolso fuera del simulador."
+    )
 
 
 @router.post("/reservations/{reservation_id}/pay", response_model=CheckoutResponse)
@@ -207,12 +238,7 @@ def pay_reservation(
     )
 
     if payload.result == "rejected":
-        event.available_capacity += reservation.quantity
-        if event.status == "sold_out" and event.available_capacity > 0:
-            event.status = "available"
-        if reservation.service_slot:
-            reservation.service_slot.status = "available"
-            reservation.service_slot.updated_at = datetime.now(timezone.utc)
+        release_reservation_capacity(event, reservation)
         reservation.status = "rejected"
         reservation.updated_at = datetime.now(timezone.utc)
         database.add(payment)
@@ -263,3 +289,12 @@ def pay_reservation(
 def mask_card(card_number: str | None) -> str:
     digits = "".join(char for char in (card_number or "") if char.isdigit())
     return f"**** **** **** {digits[-4:]}" if len(digits) >= 4 else "simulated"
+
+
+def release_reservation_capacity(event: Event, reservation: Reservation):
+    event.available_capacity += reservation.quantity
+    if event.status == "sold_out" and event.available_capacity > 0:
+        event.status = "available"
+    if reservation.service_slot:
+        reservation.service_slot.status = "available"
+        reservation.service_slot.updated_at = datetime.now(timezone.utc)

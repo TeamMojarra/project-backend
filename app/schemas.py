@@ -257,6 +257,7 @@ class ReservationResponse(BaseModel):
     updated_at: Optional[datetime]
     event: Optional[EventResponse] = None
     service_slot: Optional[ServiceSlotResponse] = None
+    user: Optional[UserResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 

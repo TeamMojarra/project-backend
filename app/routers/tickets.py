@@ -49,12 +49,12 @@ def validate_ticket(
 
     require_ticket_validator(ticket.reservation.event, current_user)
 
-    if ticket.status == "used":
+    if ticket.status != "active":
         ticket.event = ticket.reservation.event
         return TicketValidationResponse(
             valid=False,
-            status="already_used",
-            message="El ticket ya fue usado",
+            status="already_used" if ticket.status == "used" else ticket.status,
+            message="El ticket ya fue usado" if ticket.status == "used" else "El ticket no está activo",
             ticket=ticket,
         )
 

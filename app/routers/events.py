@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import nullslast, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_database
 from app.dependencies import find_event, require_event_owner
@@ -13,6 +13,7 @@ from app.schemas import (
     EventResponse,
     EventUpdate,
     MessageResponse,
+    ReservationResponse,
     ServiceSlotGenerate,
     ServiceSlotResponse,
 )
@@ -98,11 +99,30 @@ def list_service_slots(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Este recurso solo aplica para servicios",
         )
+    if event.status != "available" and not include_booked:
+        return []
 
     query = database.query(ServiceSlot).filter(ServiceSlot.event_id == event.id)
     if not include_booked:
         query = query.filter(ServiceSlot.status == "available")
     return query.order_by(ServiceSlot.starts_at.asc()).all()
+
+
+@router.get("/{event_id}/reservations", response_model=List[ReservationResponse])
+def list_event_reservations(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    database: Session = Depends(get_database),
+):
+    event = find_event(database, event_id)
+    require_event_owner(event, current_user)
+    return (
+        database.query(Reservation)
+        .options(joinedload(Reservation.user), joinedload(Reservation.service_slot))
+        .filter(Reservation.event_id == event.id)
+        .order_by(Reservation.created_at.desc())
+        .all()
+    )
 
 
 @router.post("/{event_id}/slots/generate", response_model=List[ServiceSlotResponse])
@@ -189,7 +209,11 @@ def update_event(
     event.total_capacity = payload.total_capacity
     event.available_capacity = payload.total_capacity - reserved
     event.max_tickets_per_purchase = payload.max_tickets_per_purchase
-    event.status = "sold_out" if event.available_capacity == 0 else payload.status
+    event.status = (
+        "sold_out"
+        if payload.status == "available" and event.available_capacity == 0
+        else payload.status
+    )
     event.updated_by = current_user.id
     event.updated_at = datetime.now(timezone.utc)
     database.commit()
@@ -251,4 +275,6 @@ def sync_service_capacity(database: Session, event: Event):
     )
     event.total_capacity = active
     event.available_capacity = available
+    if event.status in {"cancelled", "finished"}:
+        return
     event.status = "sold_out" if available == 0 else "available"
